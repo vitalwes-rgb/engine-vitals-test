@@ -1,0 +1,1 @@
+Analyze endpoint! apiKey length: 39, Starts with: AIzaS

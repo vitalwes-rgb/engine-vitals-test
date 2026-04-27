@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #7ED321;
+  --color-secondary: #EF4444;
+  --color-background: #0A0A0A;
+  --color-surface: #141414;
+  --color-border: #262626;
+  --color-accent: #4ADE80;
+  
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-[#F5F5F5] antialiased;
+    background-image: radial-gradient(circle at 50% 0%, #1a1a1a 0%, #0a0a0a 100%);
+    background-attachment: fixed;
+  }
+}
+
+/* Leaflet Dark Theme Overrides */
+.leaflet-popup-content-wrapper {
+  background-color: #141414 !important;
+  color: #F5F5F5 !important;
+  border: 1px solid #262626;
+  border-radius: 12px !important;
+}
+.leaflet-popup-tip {
+  background-color: #141414 !important;
+  border: 1px solid #262626;
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: #A3A3A3 !important;
+}
+.leaflet-container a.leaflet-popup-close-button:hover {
+  color: #F5F5F5 !important;
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  /* Hide navigation, buttons, and decorative elements when printing */
+  nav, button, .no-print {
+    display: none !important;
+  }
+  
+  /* Make backgrounds white and borders visible */
+  .bg-\[\#141414\], .bg-\[\#0A0A0A\], .bg-\[\#1A1A1A\], .bg-\[\#262626\] {
+    background-color: white !important;
+  }
+  
+  .border-\[\#262626\] {
+    border-color: #e5e7eb !important;
+  }
+  
+  .text-white, .text-\[\#F5F5F5\] {
+    color: black !important;
+  }
+  
+  .text-\[\#A3A3A3\], .text-\[\#525252\] {
+    color: #4b5563 !important;
+  }
+  
+  /* Ensure page breaks don't cut off important sections */
+  section, .break-inside-avoid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

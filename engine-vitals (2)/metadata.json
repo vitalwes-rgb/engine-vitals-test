@@ -1,0 +1,9 @@
+{
+  "name": "Engine Vitals",
+  "description": "AI-powered vehicle diagnostic tool that analyzes scan tool data, symptoms, and media to identify mechanical issues.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
