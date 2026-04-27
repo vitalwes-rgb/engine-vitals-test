@@ -26,7 +26,7 @@ try {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   // Rate Limiting is disabled for AI Studio shared deploys due to proxy issues
   // Apply trust proxy
