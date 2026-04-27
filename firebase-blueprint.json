@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User's full name" },
+        "photoURL": { "type": "string", "format": "uri", "description": "User's profile photo URL" },
+        "role": { "type": "string", "enum": ["admin", "mechanic", "customer", "user"], "description": "User's role in the application" },
+        "shopId": { "type": "string", "description": "ID of the shop this user is employed by" },
+        "notificationPreferences": {
+          "type": "object",
+          "properties": {
+            "emailDiagnosticReports": { "type": "boolean" },
+            "emailShopInquiries": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Diagnosis": {
+      "title": "Diagnosis",
+      "description": "A vehicle diagnosis record",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner's user ID" },
+        "vehicleInfo": {
+          "type": "object",
+          "properties": {
+            "make": { "type": "string" },
+            "model": { "type": "string" },
+            "year": { "type": "string" },
+            "vin": { "type": "string" },
+            "mileage": { "type": "string" },
+            "symptoms": { "type": "string" },
+            "customPrompt": { "type": "string" }
+          },
+          "required": ["make", "model", "year", "symptoms"]
+        },
+        "scanData": {
+          "type": "object",
+          "properties": {
+            "dtcs": { "type": "array", "items": { "type": "string" } },
+            "fuelTrimShortTerm": { "type": "number" },
+            "fuelTrimLongTerm": { "type": "number" },
+            "coolantTemp": { "type": "number" },
+            "rpm": { "type": "number" },
+            "load": { "type": "number" },
+            "maf": { "type": "number" },
+            "o2Voltage": { "type": "number" }
+          }
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "possibleIssues": { "type": "array" },
+            "recommendedFixes": { "type": "array" },
+            "partsNeeded": { "type": "array" },
+            "summary": { "type": "string" }
+          }
+        },
+        "mediaUrls": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "shareToken": { "type": "string", "description": "Token for public sharing" }
+      },
+      "required": ["uid", "vehicleInfo", "result", "createdAt", "shareToken"]
+    },
+    "Shop": {
+      "title": "Shop",
+      "description": "Automotive repair shop",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "description": "UID of the shop owner" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "zip": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "rating": { "type": "number" },
+        "specialties": { "type": "array", "items": { "type": "string" } },
+        "isPublic": { "type": "boolean", "description": "Whether the shop is visible in the directory" },
+        "isVerified": { "type": "boolean", "description": "Whether the shop has been officially verified" },
+        "inviteCode": { "type": "string", "description": "Code used to invite employees" },
+        "notificationPreferences": {
+          "type": "object",
+          "properties": {
+            "emailNewInquiries": { "type": "boolean" },
+            "emailMarketing": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["ownerId", "name", "address", "city", "state", "zip", "phone", "email", "isPublic"]
+    },
+    "ShopInquiry": {
+      "title": "ShopInquiry",
+      "description": "User inquiry sent to a shop",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "userId": { "type": "string" },
+        "diagnosisId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "responded", "closed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "message": { "type": "string" }
+      },
+      "required": ["shopId", "userId", "diagnosisId", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/diagnoses/{diagnosisId}": {
+      "schema": "Diagnosis",
+      "description": "Vehicle diagnosis records"
+    },
+    "/shops/{shopId}": {
+      "schema": "Shop",
+      "description": "Automotive repair shops"
+    },
+    "/inquiries/{inquiryId}": {
+      "schema": "ShopInquiry",
+      "description": "User inquiries sent to shops"
+    }
+  }
+}

@@ -1,0 +1,319 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields:
+    //   - uid: string (required) - Unique user ID
+    //   - email: string (required, email format) - User email address
+    //   - displayName: string (optional) - User's full name
+    //   - photoURL: string (optional, uri format) - User's profile photo URL
+    //   - role: string (required, enum: ['admin', 'user']) - User's role
+    //   - shopInfo: map (optional) - Shop details if user is a shop owner
+    //
+    // Collection: diagnoses
+    // Document ID: auto-generated
+    // Fields:
+    //   - uid: string (required) - Owner's user ID
+    //   - vehicleInfo: map (required) - Vehicle details (make, model, year, symptoms, customPrompt)
+    //   - scanData: map (optional) - OBD-II data
+    //   - result: map (required) - AI diagnosis output
+    //   - mediaUrls: list (optional) - List of storage URLs (max 10)
+    //   - createdAt: timestamp (required) - Creation time
+    //   - shareToken: string (required) - Token for public sharing
+    //   - shopInfo: map (optional) - Snapshot of shop info when shared
+    //
+    // Collection: shops
+    // Document ID: auto-generated
+    // Fields:
+    //   - ownerId: string (required) - UID of the shop owner
+    //   - name: string (required)
+    //   - address: string (required)
+    //   - city: string (required)
+    //   - state: string (required, 2 chars)
+    //   - zip: string (required, min 5 chars)
+    //   - phone: string (required)
+    //   - email: string (required, email format)
+    //   - rating: number (required, 0-5)
+    //   - specialties: list (required)
+    //   - isPublic: bool (optional)
+    //   - logoUrl: string (optional)
+    //
+    // Collection: inquiries
+    // Document ID: auto-generated
+    // Fields:
+    //   - shopId: string (required) - UID of the shop
+    //   - userId: string (required) - UID of the user
+    //   - diagnosisId: string (required) - ID of the diagnosis
+    //   - status: string (required, enum: ['pending', 'responded', 'closed'])
+    //   - createdAt: timestamp (required)
+    //   - message: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isShopEmployee(shopId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId;
+    }
+
+    function isShopOwnerOrEmployee(shopId) {
+      return isAuthenticated() && (request.auth.uid == shopId || isShopEmployee(shopId));
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        ((request.auth.token.email == "vitalwes@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isMechanic() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'mechanic';
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isRecent(ts) {
+      return ts is timestamp && 
+             ts <= request.time + duration.value(1, 'm') && 
+             ts > request.time - duration.value(5, 'm');
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data, userId) {
+      return hasRequiredFields(['uid', 'email', 'role']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'shopInfo', 'isPublicShop', 'updatedAt', 'shopId', 'notificationPreferences']) &&
+             data.uid == userId &&
+             isValidEmail(data.email) &&
+             data.role in ['admin', 'user', 'mechanic', 'customer'] &&
+             (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || data.photoURL == null || data.photoURL == "" || isValidUrl(data.photoURL)) &&
+             (!('shopId' in data) || data.shopId is string) &&
+             (!('notificationPreferences' in data) || data.notificationPreferences is map);
+    }
+
+    function isValidShop(data) {
+      return hasRequiredFields(['ownerId', 'name', 'address', 'city', 'state', 'zip', 'phone', 'email', 'rating', 'specialties']) &&
+             data.ownerId is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.address is string && data.address.size() > 0 && data.address.size() < 200 &&
+             data.city is string && data.city.size() > 0 && data.city.size() < 100 &&
+             data.state is string && data.state.size() == 2 &&
+             data.zip is string && data.zip.size() >= 5 && data.zip.size() <= 10 &&
+             isValidEmail(data.email) &&
+             data.rating is number && data.rating >= 0 && data.rating <= 5 &&
+             data.specialties is list && data.specialties.size() <= 20 &&
+             (!('inviteCode' in data) || data.inviteCode is string) &&
+             (!('notificationPreferences' in data) || data.notificationPreferences is map) &&
+             (!('isVerified' in data) || data.isVerified is bool);
+    }
+
+    function isValidInquiry(data) {
+      return hasRequiredFields(['shopId', 'userId', 'diagnosisId', 'status', 'createdAt']) &&
+             data.shopId is string &&
+             data.userId is string &&
+             data.diagnosisId is string &&
+             data.status in ['pending', 'responded', 'closed'] &&
+             data.createdAt is timestamp &&
+             (!('message' in data) || (data.message is string && data.message.size() < 1000)) &&
+             (!('issueDescription' in data) || data.issueDescription is string) &&
+             (!('vehicleInfo' in data) || data.vehicleInfo is map) &&
+             (!('unreadCountShop' in data) || data.unreadCountShop is number) &&
+             (!('unreadCountUser' in data) || data.unreadCountUser is number) &&
+             (!('lastMessageAt' in data) || data.lastMessageAt is timestamp) &&
+             (!('appointment' in data) || data.appointment is map) &&
+             (!('isReviewed' in data) || data.isReviewed is bool);
+    }
+
+    function isValidDiagnosis(data) {
+      return hasRequiredFields(['uid', 'vehicleInfo', 'result', 'createdAt', 'shareToken']) &&
+             data.uid == request.auth.uid &&
+             data.createdAt is timestamp &&
+             data.shareToken is string && data.shareToken.size() > 10 &&
+             data.vehicleInfo is map &&
+             data.vehicleInfo.make is string && data.vehicleInfo.make.size() > 0 &&
+             data.vehicleInfo.model is string && data.vehicleInfo.model.size() > 0 &&
+             data.vehicleInfo.year is string && data.vehicleInfo.year.size() >= 2 && data.vehicleInfo.year.size() <= 4 &&
+             data.result is map &&
+             (!('summary' in data.result) || data.result.summary is string) &&
+             (!('mediaUrls' in data) || data.mediaUrls == null || (data.mediaUrls is list && data.mediaUrls.size() <= 10)) &&
+             (!('shopInfo' in data) || data.shopInfo == null || data.shopInfo is map);
+    }
+
+    function isValidReview(data) {
+      return hasRequiredFields(['userId', 'shopId', 'userName', 'rating', 'comment', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.shopId is string &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() > 0 && data.comment.size() < 2000 &&
+             data.createdAt is timestamp &&
+             (!('inquiryId' in data) || data.inquiryId is string);
+    }
+
+    function isValidVehicle(data) {
+      return hasRequiredFields(['userId', 'make', 'model', 'year', 'mileage', 'maintenanceSchedule', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.make is string && data.make.size() > 0 && data.make.size() < 100 &&
+             data.model is string && data.model.size() > 0 && data.model.size() < 100 &&
+             data.year is number && data.year > 1900 && data.year < 2100 &&
+             data.mileage is number && data.mileage >= 0 &&
+             data.maintenanceSchedule is list &&
+             data.createdAt is timestamp &&
+             (!('vin' in data) || data.vin == null || (data.vin is string && data.vin.size() <= 20));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // PII Protection: Only owner or admin can read
+      allow list: if isAdmin();
+      allow read: if isOwner(userId) || isAdmin() || (isAuthenticated() && resource.data.shopId == request.auth.uid);
+      
+      // RBAC: Users cannot set their own role to 'admin' unless they are already admin
+      allow create: if isAuthenticated() && 
+                    isValidUser(request.resource.data, userId) && 
+                    (request.resource.data.role in ['user', 'mechanic'] || isAdmin());
+                    
+      allow update: if isAuthenticated() && 
+                    isValidUser(request.resource.data, userId) && 
+                    (
+                      (isOwner(userId) && (request.resource.data.role == resource.data.role || isAdmin())) ||
+                      isAdmin() ||
+                      (resource.data.shopId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shopId', 'role']))
+                    );
+    }
+
+    match /diagnoses/{diagnosisId} {
+      // Public sharing via shareToken
+      // Rules are not filters: this requires the query to filter by shareToken or uid
+      allow list: if (request.query.limit == null || request.query.limit <= 50) && (
+        (isAuthenticated() && resource.data.uid == request.auth.uid) ||
+        (resource.data.shareToken != null)
+      );
+      
+      // Enforce the capability token constraint or ownership to prevent IDOR
+      allow get: if isDocOwner() || resource.data.shareToken != null || isAdmin();
+      
+      allow create: if isAuthenticated() && 
+                    isValidDiagnosis(request.resource.data) &&
+                    isRecent(request.resource.data.createdAt);
+                    
+      allow update: if false; // Diagnoses are immutable history
+      
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /shops/{shopId} {
+      allow get, list: if true; // Public directory
+      
+      allow create: if isAuthenticated() && 
+                    isValidShop(request.resource.data) && 
+                    (request.resource.data.ownerId == request.auth.uid || isAdmin());
+                    
+      allow update: if isAuthenticated() && 
+                    isValidShop(request.resource.data) && 
+                    (request.auth.uid == resource.data.ownerId || isAdmin()) &&
+                    (request.resource.data.ownerId == resource.data.ownerId || isAdmin()) &&
+                    (request.resource.data.get('isVerified', false) == resource.data.get('isVerified', false) || isAdmin());
+                    
+      allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.ownerId);
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && 
+                      isValidReview(request.resource.data) &&
+                      isRecent(request.resource.data.createdAt);
+        allow update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
+      }
+    }
+
+    match /inquiries/{inquiryId} {
+      allow read: if isAuthenticated() && 
+                  (isAdmin() || request.auth.uid == resource.data.userId || isShopOwnerOrEmployee(resource.data.shopId));
+                  
+      allow create: if isAuthenticated() && 
+                    isValidInquiry(request.resource.data) && 
+                    request.resource.data.userId == request.auth.uid &&
+                    isRecent(request.resource.data.createdAt);
+                    
+      allow update: if isAuthenticated() && 
+                    isValidInquiry(request.resource.data) &&
+                    (isAdmin() || isShopOwnerOrEmployee(resource.data.shopId) || request.auth.uid == resource.data.userId) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'unreadCountShop', 'unreadCountUser', 'lastMessageAt', 'appointment', 'isReviewed']);
+                    
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && 
+                    (isAdmin() || request.auth.uid == resource.data.userId || isShopOwnerOrEmployee(resource.data.shopId));
+        
+        allow create: if isAuthenticated() && 
+                      (isAdmin() || request.auth.uid == request.resource.data.userId || isShopOwnerOrEmployee(request.resource.data.shopId)) &&
+                      request.resource.data.inquiryId == inquiryId &&
+                      request.resource.data.userId == get(/databases/$(database)/documents/inquiries/$(inquiryId)).data.userId &&
+                      request.resource.data.shopId == get(/databases/$(database)/documents/inquiries/$(inquiryId)).data.shopId;
+                      
+        allow update: if isAuthenticated() && 
+                      (isAdmin() || request.auth.uid == resource.data.userId || isShopOwnerOrEmployee(resource.data.shopId)) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estimateDetails']);
+      }
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isAuthenticated() && isValidVehicle(request.resource.data) && isRecent(request.resource.data.createdAt);
+      allow update: if isAuthenticated() && request.auth.uid == resource.data.userId && isValidVehicle(request.resource.data) && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
