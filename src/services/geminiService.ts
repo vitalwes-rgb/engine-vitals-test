@@ -3,7 +3,7 @@ import { DiagnosisResult, ScanToolData, VehicleInfo } from '../types';
 import { auth } from '../firebase';
 
 // The URL should be relative so it utilizes the same host running Express in production/preview
-const API_BASE = "/api";
+const API_BASE = "https://engine-vitals-test.onrender.com/api";
 
 async function getAuthHeaders() {
   const user = auth.currentUser;
